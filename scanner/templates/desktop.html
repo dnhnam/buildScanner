@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>buildScanner</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="desktop">
+  <header class="topbar">
+    <div class="brand">buildScanner</div>
+    <div class="export">
+      <input id="pdfName" type="text" placeholder="Tên file PDF (để trống = tự đặt)">
+      <select id="pageSize" title="Khổ trang">
+        <option value="a4">A4</option>
+        <option value="letter">Letter</option>
+        <option value="auto">Theo ảnh</option>
+      </select>
+      <button id="exportBtn" class="primary" disabled>Xuất PDF</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <section class="card">
+        <h2>1. Gửi ảnh từ điện thoại</h2>
+        <div id="qr" class="qr"><span class="muted">Đang lấy địa chỉ…</span></div>
+        <p class="muted small">Mở camera điện thoại, quét mã. Điện thoại và laptop phải dùng chung Wi-Fi.</p>
+        <details class="small">
+          <summary>Địa chỉ nhập tay</summary>
+          <ul id="urls" class="urls"></ul>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>…hoặc chọn ảnh trên laptop</h2>
+        <label id="dropZone" class="dropzone">
+          <input id="fileInput" type="file" accept="image/*,.heic,.heif" multiple hidden>
+          <span>Kéo thả ảnh vào đây<br><small class="muted">hoặc bấm để chọn</small></span>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>2. Chế độ màu</h2>
+        <select id="modeAll" class="block">
+          <option value="color">Màu, nền trắng</option>
+          <option value="gray">Xám</option>
+          <option value="bw">Đen trắng (file nhẹ)</option>
+          <option value="original">Giữ nguyên màu</option>
+        </select>
+        <button id="modeAllBtn" class="block">Áp dụng cho tất cả trang</button>
+      </section>
+
+      <section class="card">
+        <button id="clearBtn" class="danger block">Xoá tất cả trang</button>
+      </section>
+    </aside>
+
+    <main class="main">
+      <div id="status" class="status"></div>
+      <div id="empty" class="empty">
+        <p><strong>Chưa có trang nào.</strong></p>
+        <p class="muted">Quét mã QR bằng điện thoại để chụp và gửi ảnh, hoặc kéo thả ảnh vào khung bên trái.<br>
+          Kéo các trang để đổi thứ tự. Bấm "Chỉnh góc" nếu máy cắt chưa đúng.</p>
+      </div>
+      <div id="grid" class="grid"></div>
+    </main>
+  </div>
+
+  <!-- Màn hình chỉnh 4 góc -->
+  <div id="editor" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <strong>Chỉnh khung giấy</strong>
+        <span class="muted small">Kéo 4 chấm tròn vào đúng 4 góc tờ giấy</span>
+      </div>
+      <div class="canvas-wrap"><canvas id="editorCanvas"></canvas></div>
+      <div class="modal-foot">
+        <button id="edAuto">Tự dò lại</button>
+        <button id="edFull">Lấy toàn ảnh</button>
+        <span class="spacer"></span>
+        <button id="edCancel">Huỷ</button>
+        <button id="edSave" class="primary">Lưu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Xem trang lớn -->
+  <div id="viewer" class="modal" hidden>
+    <img id="viewerImg" alt="">
+  </div>
+
+  <script src="{{ url_for('static', filename='desktop.js') }}"></script>
+</body>
+</html>

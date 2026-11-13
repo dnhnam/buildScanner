@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Gửi ảnh – buildScanner</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="mobile">
+  <h1>buildScanner</h1>
+  <p class="muted">Ảnh gửi lên sẽ hiện ngay trên laptop.</p>
+
+  <label class="big-btn primary">
+    <input id="camInput" type="file" accept="image/*" capture="environment" hidden>
+    📷 Chụp trang mới
+  </label>
+  <label class="big-btn">
+    <input id="pickInput" type="file" accept="image/*" multiple hidden>
+    🖼️ Chọn ảnh có sẵn
+  </label>
+
+  <div class="tips small muted">
+    Mẹo: đặt giấy trên nền tối hơn giấy, chụp đủ 4 góc, đủ sáng và tránh bóng tay.
+  </div>
+
+  <div id="summary" class="summary"></div>
+  <ul id="log" class="log"></ul>
+
+  <script>window.SCAN_TOKEN = {{ token|tojson }};</script>
+  <script src="{{ url_for('static', filename='mobile.js') }}"></script>
+</body>
+</html>
