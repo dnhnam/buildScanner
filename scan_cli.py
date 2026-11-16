@@ -63,10 +63,10 @@ def main() -> int:
             print(f"! [{i}/{len(files)}] {f.name}: không đọc được ({exc})", file=sys.stderr)
             continue
         if args.no_crop:
-            corners, found = core.full_image_corners(img), True
+            out, found = core.process(img, core.full_image_corners(img), args.mode), True
         else:
-            corners, found = core.detect_document(img)
-        out = core.process(img, corners, args.mode)
+            ring, found = core.detect_outline(img)
+            out = core.process(img, mode=args.mode, outline=ring)
         pages.append(core.page_bytes(out, args.mode))
         note = "" if found else "  (không thấy khung giấy, giữ toàn ảnh)"
         print(f"  [{i}/{len(files)}] {f.name}{note}")

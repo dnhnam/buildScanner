@@ -89,12 +89,12 @@
     card.dataset.id = id;
     card.innerHTML = `
       <div class="thumb"><img alt=""><span class="num"></span><div class="busy">Đang xử lý…</div></div>
-      <div class="warn" hidden>Không tìm thấy khung giấy — hãy bấm "Chỉnh góc"</div>
+      <div class="warn" hidden>Không tìm thấy khung giấy — hãy bấm "Chỉnh khung"</div>
       <div class="controls">
         <select class="mode">${Object.entries(MODE_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>
         <button class="rotl" title="Xoay trái">⟲</button>
         <button class="rotr" title="Xoay phải">⟳</button>
-        <button class="edit" title="Chỉnh 4 góc">Chỉnh góc</button>
+        <button class="edit" title="Chỉnh khung và mép giấy">Chỉnh khung</button>
         <button class="del danger" title="Xoá trang">✕</button>
       </div>`;
     const page = () => state.pages.find((p) => p.id === id);
@@ -277,16 +277,55 @@
     if (!$("editor").hidden) closeEditor();
   });
 
-  // ------------------------------------------------------------------ Chỉnh 4 góc
-  const ed = { page: null, img: null, pts: null, drag: -1, scale: 1, dpr: 1, w: 0, h: 0 };
+  // ------------------------------------------------------------------ Chỉnh khung (4 góc + mép cong)
+  // ed.pts là vòng điểm theo chiều kim đồng hồ từ góc trên-trái: mỗi cạnh n điểm (kể cả 2 góc).
+  const ed = { page: null, img: null, pts: null, n: 9, drag: -1, scale: 1, dpr: 1, w: 0, h: 0 };
   const canvas = $("editorCanvas");
   const ctx = canvas.getContext("2d");
-  const HANDLE = 11;
+  const R_CORNER = 11, R_EDGE = 6;
+
+  const cornerIdx = () => [0, ed.n - 1, 2 * (ed.n - 1), 3 * (ed.n - 1)];
+  const isCorner = (i) => i % (ed.n - 1) === 0;
+
+  function straightRing(corners, n) {
+    const ring = [];
+    for (let k = 0; k < 4; k++) {
+      const a = corners[k], b = corners[(k + 1) % 4];
+      for (let j = 0; j < n - 1; j++) {
+        const t = j / (n - 1);
+        ring.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+      }
+    }
+    return ring;
+  }
+
+  function edgePoints(k) {  // n điểm của cạnh k
+    const m = ed.n - 1, out = [];
+    for (let j = 0; j <= m; j++) out.push(ed.pts[(k * m + j) % ed.pts.length]);
+    return out;
+  }
+
+  function catmull(points, per = 12) {  // đường cong mượt đi qua các điểm
+    const p = points, out = [];
+    const get = (i) => i < 0 ? [2 * p[0][0] - p[1][0], 2 * p[0][1] - p[1][1]]
+      : i >= p.length ? [2 * p[p.length - 1][0] - p[p.length - 2][0], 2 * p[p.length - 1][1] - p[p.length - 2][1]] : p[i];
+    for (let i = 0; i < p.length - 1; i++) {
+      const p0 = get(i - 1), p1 = p[i], p2 = p[i + 1], p3 = get(i + 2);
+      for (let s = 0; s < per; s++) {
+        const t = s / per, t2 = t * t, t3 = t2 * t;
+        out.push([0, 1].map((d) => 0.5 * (2 * p1[d] + (-p0[d] + p2[d]) * t
+          + (2 * p0[d] - 5 * p1[d] + 4 * p2[d] - p3[d]) * t2 + (-p0[d] + 3 * p1[d] - 3 * p2[d] + p3[d]) * t3)));
+      }
+    }
+    out.push(p[p.length - 1]);
+    return out;
+  }
 
   function openEditor(page) {
     if (!page) return;
     ed.page = page;
-    ed.pts = page.corners_norm.map((c) => c.slice());
+    ed.pts = page.outline_norm.map((c) => c.slice());
+    ed.n = ed.pts.length / 4 + 1;
     ed.img = new Image();
     ed.img.onload = () => { layoutEditor(); drawEditor(); };
     ed.img.src = `/files/previews/${page.id}.jpg?v=${page.rev}`;
@@ -311,7 +350,15 @@
     canvas.height = Math.round(ed.h * ed.dpr);
   }
 
-  function toPx(p) { return [p[0] * ed.w, p[1] * ed.h]; }
+  const toPx = (p) => [p[0] * ed.w, p[1] * ed.h];
+
+  function outlinePath() {
+    const dense = [];
+    for (let k = 0; k < 4; k++) dense.push(...catmull(edgePoints(k).map(toPx)).slice(0, -1));
+    ctx.moveTo(...dense[0]);
+    for (const p of dense.slice(1)) ctx.lineTo(...p);
+    ctx.closePath();
+  }
 
   function drawEditor() {
     if (!ed.page || !ed.img.complete) return;
@@ -319,45 +366,40 @@
     ctx.clearRect(0, 0, ed.w, ed.h);
     ctx.drawImage(ed.img, 0, 0, ed.w, ed.h);
 
-    const px = ed.pts.map(toPx);
-    // Làm tối vùng nằm ngoài khung giấy
-    ctx.save();
+    ctx.save();  // làm tối vùng ngoài tờ giấy
     ctx.beginPath();
     ctx.rect(0, 0, ed.w, ed.h);
-    ctx.moveTo(...px[0]);
-    px.slice(1).forEach((p) => ctx.lineTo(...p));
-    ctx.closePath();
+    outlinePath();
     ctx.fillStyle = "rgba(0,0,0,.45)";
     ctx.fill("evenodd");
     ctx.restore();
 
     ctx.beginPath();
-    ctx.moveTo(...px[0]);
-    px.slice(1).forEach((p) => ctx.lineTo(...p));
-    ctx.closePath();
+    outlinePath();
     ctx.lineWidth = 2;
     ctx.strokeStyle = "#3d8bff";
     ctx.stroke();
 
-    px.forEach(([x, y], i) => {
+    ed.pts.forEach((p, i) => {
+      const [x, y] = toPx(p);
       ctx.beginPath();
-      ctx.arc(x, y, HANDLE, 0, Math.PI * 2);
-      ctx.fillStyle = i === ed.drag ? "#ffb020" : "rgba(61,139,255,.35)";
+      ctx.arc(x, y, isCorner(i) ? R_CORNER : R_EDGE, 0, Math.PI * 2);
+      ctx.fillStyle = i === ed.drag ? "#ffb020" : isCorner(i) ? "rgba(61,139,255,.35)" : "#3d8bff";
       ctx.fill();
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = isCorner(i) ? 2.5 : 1.5;
       ctx.strokeStyle = "#fff";
       ctx.stroke();
     });
 
-    if (ed.drag >= 0) drawLoupe(px[ed.drag]);
+    if (ed.drag >= 0) drawLoupe(toPx(ed.pts[ed.drag]));
   }
 
-  // Kính lúp: phóng to vùng quanh góc đang kéo, đặt ở góc đối diện cho khỏi che
+  // Kính lúp: phóng to vùng quanh điểm đang kéo, đặt ở góc đối diện cho khỏi che
   function drawLoupe([x, y]) {
     const R = 70, Z = 3;
     const cx = x < ed.w / 2 ? ed.w - R - 10 : R + 10;
     const cy = y < ed.h / 2 ? ed.h - R - 10 : R + 10;
-    const sx = (x / ed.scale), sy = (y / ed.scale);
+    const sx = x / ed.scale, sy = y / ed.scale;
     const srcR = R / (Z * ed.scale);
     ctx.save();
     ctx.beginPath();
@@ -385,14 +427,32 @@
     return [e.clientX - r.left, e.clientY - r.top];
   }
 
+  function movePoint(i, np) {
+    const clamp = (v) => Math.min(1, Math.max(0, v));
+    np = [clamp(np[0]), clamp(np[1])];
+    const old = ed.pts[i];
+    const d = [np[0] - old[0], np[1] - old[1]];
+    ed.pts[i] = np;
+    if (!isCorner(i)) return;
+    // Kéo góc: các điểm trên 2 cạnh kề dịch theo, càng xa góc càng ít
+    const m = ed.n - 1, N = ed.pts.length;
+    for (let j = 1; j < m; j++) {
+      const w = 1 - j / m;
+      for (const idx of [(i + j) % N, (i - j + N) % N]) {
+        ed.pts[idx] = [clamp(ed.pts[idx][0] + d[0] * w), clamp(ed.pts[idx][1] + d[1] * w)];
+      }
+    }
+  }
+
   canvas.addEventListener("pointerdown", (e) => {
     const [x, y] = pointerPos(e);
-    let best = -1, bestD = 40;  // bấm trong bán kính 40px quanh chấm
-    ed.pts.map(toPx).forEach(([px, py], i) => {
-      const d = Math.hypot(px - x, py - y);
+    let best = -1, bestD = Infinity;
+    ed.pts.forEach((p, i) => {
+      const [px, py] = toPx(p);
+      const d = Math.hypot(px - x, py - y) - (isCorner(i) ? 10 : 0);  // ưu tiên góc
       if (d < bestD) { best = i; bestD = d; }
     });
-    if (best < 0) return;
+    if (bestD > 30) return;
     ed.drag = best;
     canvas.setPointerCapture(e.pointerId);
     drawEditor();
@@ -400,7 +460,7 @@
   canvas.addEventListener("pointermove", (e) => {
     if (ed.drag < 0) return;
     const [x, y] = pointerPos(e);
-    ed.pts[ed.drag] = [Math.min(1, Math.max(0, x / ed.w)), Math.min(1, Math.max(0, y / ed.h))];
+    movePoint(ed.drag, [x / ed.w, y / ed.h]);
     drawEditor();
   });
   const endDrag = () => { ed.drag = -1; drawEditor(); };
@@ -410,13 +470,18 @@
 
   $("edCancel").addEventListener("click", closeEditor);
   $("edFull").addEventListener("click", () => {
-    ed.pts = [[0, 0], [1, 0], [1, 1], [0, 1]];
+    ed.pts = straightRing([[0, 0], [1, 0], [1, 1], [0, 1]], ed.n);
+    drawEditor();
+  });
+  $("edStraight").addEventListener("click", () => {
+    ed.pts = straightRing(cornerIdx().map((i) => ed.pts[i]), ed.n);
     drawEditor();
   });
   $("edAuto").addEventListener("click", async () => {
     try {
       const p = await api("PATCH", `/api/pages/${ed.page.id}`, { redetect: true });
-      ed.pts = p.corners_norm.map((c) => c.slice());
+      ed.pts = p.outline_norm.map((c) => c.slice());
+      ed.n = ed.pts.length / 4 + 1;
       drawEditor();
       if (!p.auto_found) setStatus("Máy không tìm thấy khung giấy, hãy kéo góc bằng tay.");
       refresh(true);
@@ -427,7 +492,7 @@
   $("edSave").addEventListener("click", async () => {
     const id = ed.page.id, pts = ed.pts;
     closeEditor();
-    await patch(id, { corners_norm: pts });
+    await patch(id, { outline_norm: pts });
   });
 
   // ------------------------------------------------------------------ Khởi động

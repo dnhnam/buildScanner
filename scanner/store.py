@@ -12,7 +12,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import core
+from . import core, curve
 
 ORIGINAL_MAX_SIDE = 4000   # ảnh gốc lưu lại tối đa 4000px (đủ cho A4 300 dpi)
 PREVIEW_MAX_SIDE = 1400    # ảnh gốc thu nhỏ cho màn hình chỉnh góc
@@ -32,10 +32,27 @@ class Page:
     rotation: int = 0
     rev: int = 0                        # tăng mỗi lần xử lý lại, để trình duyệt tải ảnh mới
     source: str = field(default="laptop")
+    outline: list[list[float]] | None = None   # mép cong (xem scanner.curve); None = 4 cạnh thẳng
+
+    def ring(self) -> np.ndarray:
+        if self.outline:
+            return np.asarray(self.outline, dtype=np.float64)
+        return curve.straight_outline(self.corners)
+
+    def set_ring(self, ring: np.ndarray) -> None:
+        ring = np.asarray(ring, dtype=np.float64)
+        ring[:, 0] = np.clip(ring[:, 0], 0, self.width - 1)
+        ring[:, 1] = np.clip(ring[:, 1], 0, self.height - 1)
+        self.outline = ring.round(1).tolist()
+        self.corners = curve.corners_of(ring).round(1).tolist()
+
+    def _norm(self, pts) -> list[list[float]]:
+        return [[x / (self.width - 1), y / (self.height - 1)] for x, y in pts]
 
     def to_api(self) -> dict:
         d = asdict(self)
-        d["corners_norm"] = [[x / (self.width - 1), y / (self.height - 1)] for x, y in self.corners]
+        d["corners_norm"] = self._norm(self.corners)
+        d["outline_norm"] = self._norm(self.ring())
         return d
 
 
@@ -85,7 +102,8 @@ class PageStore:
     def add(self, data: bytes, name: str, source: str = "laptop", mode: str = "color") -> Page:
         """Nhận một ảnh mới: chuẩn hoá, tự dò khung, xử lý, lưu."""
         img = core.limit_size(core.load_image(data), ORIGINAL_MAX_SIDE)
-        corners, found = core.detect_document(img)
+        ring, found = core.detect_outline(img)
+        corners = curve.corners_of(ring)
         h, w = img.shape[:2]
         page = Page(
             id=uuid.uuid4().hex[:12],
@@ -98,6 +116,7 @@ class PageStore:
             mode=mode,
             source=source,
         )
+        page.set_ring(ring)
         core.save_image(img, self.path("originals", page.id), quality=95)
         core.save_image(core.limit_size(img, PREVIEW_MAX_SIDE), self.path("previews", page.id), quality=85)
         self._render(page, img)
@@ -111,6 +130,7 @@ class PageStore:
         page_id: str,
         *,
         corners_norm: list[list[float]] | None = None,
+        outline_norm: list[list[float]] | None = None,
         mode: str | None = None,
         rotate_by: int | None = None,
         redetect: bool = False,
@@ -122,15 +142,25 @@ class PageStore:
         if redetect or full:
             img = self.original(page)
             if full:
-                page.corners, page.auto_found = core.full_image_corners(img).tolist(), True
+                page.set_ring(curve.straight_outline(core.full_image_corners(img)))
+                page.auto_found = True
             else:
-                c, found = core.detect_document(img)
-                page.corners, page.auto_found = c.round(1).tolist(), bool(found)
+                ring, found = core.detect_outline(img)
+                page.set_ring(ring)
+                page.auto_found = bool(found)
         if corners_norm is not None:
-            pts = np.clip(np.asarray(corners_norm, dtype=np.float64).reshape(4, 2), 0.0, 1.0)
-            pts[:, 0] *= page.width - 1
-            pts[:, 1] *= page.height - 1
-            page.corners = core.order_corners(pts).round(1).tolist()
+            pts = self._denorm(page, corners_norm)
+            if pts.shape != (4, 2):
+                raise ValueError("Cần đúng 4 góc")
+            page.set_ring(curve.straight_outline(core.order_corners(pts)))
+            page.auto_found = True
+        if outline_norm is not None:
+            pts = self._denorm(page, outline_norm)
+            if len(pts) < 8 or len(pts) % 4:
+                raise ValueError("Mép giấy không hợp lệ")
+            if len(pts) != curve.ring_size():
+                pts = curve.resample_outline(pts)
+            page.set_ring(pts)
             page.auto_found = True
         if mode is not None:
             if mode not in core.MODES:
@@ -142,6 +172,13 @@ class PageStore:
         with self.lock:
             self._save()
         return page
+
+    @staticmethod
+    def _denorm(page: Page, pts_norm) -> np.ndarray:
+        pts = np.clip(np.asarray(pts_norm, dtype=np.float64).reshape(-1, 2), 0.0, 1.0)
+        pts[:, 0] *= page.width - 1
+        pts[:, 1] *= page.height - 1
+        return pts
 
     def set_mode_all(self, mode: str) -> None:
         for p in list(self.pages):
@@ -173,7 +210,7 @@ class PageStore:
     def _render(self, page: Page, img: np.ndarray | None = None) -> None:
         if img is None:
             img = self.original(page)
-        out = core.process(img, page.corners, page.mode, page.rotation)
+        out = core.process(img, mode=page.mode, rotation=page.rotation, outline=page.ring())
         core.save_image(out, self.path("processed", page.id), quality=92)
         thumb = core.limit_size(out, THUMB_MAX_SIDE)
         if thumb.ndim == 2:
@@ -186,6 +223,6 @@ class PageStore:
             pages = list(self.pages)
         blobs = []
         for p in pages:
-            img = core.process(self.original(p), p.corners, p.mode, p.rotation)
+            img = core.process(self.original(p), mode=p.mode, rotation=p.rotation, outline=p.ring())
             blobs.append(core.page_bytes(img, p.mode))
         return core.build_pdf(blobs, page_size)

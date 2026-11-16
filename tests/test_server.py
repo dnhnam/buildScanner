@@ -100,3 +100,33 @@ def test_safe_pdf_name():
     assert safe_pdf_name('a/b:c*?"<>|.pdf') == "a_b_c_.pdf"
     assert safe_pdf_name("Biên bản") == "Biên bản.pdf"
     assert safe_pdf_name("").startswith("scan_")
+
+
+def test_outline_api(client):
+    upload(client, 1)
+    p = client.get("/api/pages").json["pages"][0]
+    ring = p["outline_norm"]
+    assert len(ring) == 32
+    ring[4] = [ring[4][0], ring[4][1] + 0.02]  # kéo điểm giữa mép trên xuống
+    r = client.patch(f"/api/pages/{p['id']}", json={"outline_norm": ring})
+    assert r.status_code == 200
+    assert r.json["outline_norm"][4][1] == pytest.approx(ring[4][1], abs=1e-3)
+    assert client.patch(f"/api/pages/{p['id']}", json={"outline_norm": [[0, 0], [1, 1]]}).status_code == 400
+    # đặt lại 4 góc -> mép thẳng
+    r = client.patch(f"/api/pages/{p['id']}", json={"corners_norm": [[0, 0], [1, 0], [1, 1], [0, 1]]})
+    assert r.json["outline_norm"][4] == pytest.approx([0.5, 0.0], abs=1e-3)
+
+
+def test_old_pages_json_without_outline_still_loads(tmp_path):
+    import json
+    a = create_app(tmp_path / "d").test_client()
+    upload(a, 1)
+    idx = tmp_path / "d" / "pages.json"
+    raw = json.loads(idx.read_text(encoding="utf-8"))
+    for p in raw["pages"]:
+        p.pop("outline", None)
+    idx.write_text(json.dumps(raw), encoding="utf-8")
+    b = create_app(tmp_path / "d").test_client()
+    pages = b.get("/api/pages").json["pages"]
+    assert len(pages) == 1 and len(pages[0]["outline_norm"]) == 32
+    assert b.get("/api/export").status_code == 200

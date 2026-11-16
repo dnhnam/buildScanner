@@ -61,7 +61,7 @@
       <div id="empty" class="empty">
         <p><strong>Chưa có trang nào.</strong></p>
         <p class="muted">Quét mã QR bằng điện thoại để chụp và gửi ảnh, hoặc kéo thả ảnh vào khung bên trái.<br>
-          Kéo các trang để đổi thứ tự. Bấm "Chỉnh góc" nếu máy cắt chưa đúng.</p>
+          Kéo các trang để đổi thứ tự. Bấm "Chỉnh khung" nếu máy cắt chưa đúng.</p>
       </div>
       <div id="grid" class="grid"></div>
     </main>
@@ -72,11 +72,12 @@
     <div class="modal-box">
       <div class="modal-head">
         <strong>Chỉnh khung giấy</strong>
-        <span class="muted small">Kéo 4 chấm tròn vào đúng 4 góc tờ giấy</span>
+        <span class="muted small">Kéo 4 chấm lớn vào 4 góc tờ giấy. Nếu mép giấy cong, kéo thêm các chấm nhỏ dọc theo mép cho khớp.</span>
       </div>
       <div class="canvas-wrap"><canvas id="editorCanvas"></canvas></div>
       <div class="modal-foot">
         <button id="edAuto">Tự dò lại</button>
+        <button id="edStraight">Làm thẳng mép</button>
         <button id="edFull">Lấy toàn ảnh</button>
         <span class="spacer"></span>
         <button id="edCancel">Huỷ</button>

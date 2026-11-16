@@ -140,6 +140,7 @@ def create_app(data_dir: Path, port: int = 8000) -> Flask:
             page = store.update(
                 page_id,
                 corners_norm=body.get("corners_norm"),
+                outline_norm=body.get("outline_norm"),
                 mode=body.get("mode"),
                 rotate_by=int(body.get("rotate_by") or 0),
                 redetect=bool(body.get("redetect")),

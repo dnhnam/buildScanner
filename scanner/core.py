@@ -16,6 +16,8 @@ import img2pdf
 import numpy as np
 from PIL import Image, ImageOps
 
+from . import curve
+
 try:  # Ảnh HEIC chụp từ iPhone (khi chép file trực tiếp sang laptop)
     from pillow_heif import register_heif_opener
 
@@ -170,23 +172,64 @@ def warp(img: np.ndarray, corners: Sequence[Sequence[float]]) -> np.ndarray:
     return cv2.warpPerspective(img, m, (width, height), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 
-def _background(channel: np.ndarray) -> np.ndarray:
-    """Ước lượng nền giấy (ánh sáng không đều, bóng đổ) bằng cách xoá chữ rồi làm mờ.
+BG_SIZE = 320  # ảnh thu nhỏ dùng để ước lượng nền giấy
 
-    Tính trên ảnh thu nhỏ cho nhanh rồi phóng lại.
+
+def _masked_blur(x: np.ndarray, mask: np.ndarray, sigma: float) -> np.ndarray:
+    """Làm mờ chỉ dựa trên các điểm thuộc mask (normalized convolution).
+
+    Vùng ngoài mask (chữ, ô tô xám, hình) được lấp bằng giá trị nền giấy xung quanh.
     """
-    h, w = channel.shape
-    f = 600 / max(h, w)
-    small = cv2.resize(channel, (max(1, int(w * f)), max(1, int(h * f))), interpolation=cv2.INTER_AREA) if f < 1 else channel
-    bg = cv2.dilate(small, np.ones((7, 7), np.uint8))
-    bg = cv2.medianBlur(bg, 21)
-    return cv2.resize(bg, (w, h), interpolation=cv2.INTER_LINEAR)
+    m = mask.astype(np.float32)
+    num = cv2.GaussianBlur(x * m, (0, 0), sigma)
+    den = cv2.GaussianBlur(m, (0, 0), sigma)
+    out = num / np.maximum(den, 1e-6)
+    weak = den < 0.05  # vùng tối quá lớn: lấy nền từ xa hơn
+    if weak.any():
+        num2 = cv2.GaussianBlur(x * m, (0, 0), sigma * 5)
+        den2 = cv2.GaussianBlur(m, (0, 0), sigma * 5)
+        far = num2 / np.maximum(den2, 1e-6)
+        out[weak] = far[weak] if den2.max() > 1e-3 else float(np.median(x))
+    return out
+
+
+def _paper_mask(gray_small: np.ndarray, sigma: float) -> np.ndarray:
+    """Xác định điểm nào là giấy trắng (không phải chữ, không phải mảng tô đậm)."""
+    g = gray_small.astype(np.float32)
+    t, _ = cv2.threshold(gray_small, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    mask = g > t
+    for _ in range(2):  # tinh chỉnh: giấy là điểm gần bằng độ sáng nền ở xung quanh
+        if mask.mean() < 0.05:
+            break
+        bg = _masked_blur(g, mask, sigma)
+        mask = g > 0.80 * bg
+    return cv2.erode(mask.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+
+
+def _flatten_all(img: np.ndarray) -> np.ndarray:
+    """Chia ảnh cho nền giấy ước lượng: xoá bóng đổ, ánh sáng không đều, nền thành trắng.
+
+    Khác cách cũ (lấy cực đại cục bộ), cách này không làm trắng các ô tô xám lớn.
+    """
+    h, w = img.shape[:2]
+    f = min(1.0, BG_SIZE / max(h, w))
+    sw, sh = max(1, int(w * f)), max(1, int(h * f))
+    small = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA)
+    gray_small = small if small.ndim == 2 else cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    sigma = 0.035 * max(sw, sh)
+    mask = _paper_mask(gray_small, sigma)
+    chans = [small] if small.ndim == 2 else cv2.split(small)
+    full = [img] if img.ndim == 2 else cv2.split(img)
+    out = []
+    for cs, cf in zip(chans, full):
+        bg = _masked_blur(cs.astype(np.float32), mask, sigma)
+        bg = cv2.resize(bg, (w, h), interpolation=cv2.INTER_LINEAR)
+        out.append(np.clip(cf.astype(np.float32) / np.maximum(bg, 1.0) * 255.0, 0, 255).astype(np.uint8))
+    return out[0] if len(out) == 1 else cv2.merge(out)
 
 
 def _flatten(channel: np.ndarray) -> np.ndarray:
-    bg = _background(channel).astype(np.float32)
-    out = channel.astype(np.float32) / np.maximum(bg, 1.0) * 255.0
-    return np.clip(out, 0, 255).astype(np.uint8)
+    return _flatten_all(channel)
 
 
 def _levels(img: np.ndarray, black: int = 30, white: int = 225) -> np.ndarray:
@@ -206,8 +249,7 @@ def enhance(img: np.ndarray, mode: str = "color") -> np.ndarray:
     if mode == "original":
         return img
     if mode == "color":
-        channels = [_flatten(c) for c in cv2.split(img)]
-        return _levels(cv2.merge(channels))
+        return _levels(_flatten_all(img))
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     flat = _flatten(gray)
     if mode == "gray":
@@ -247,16 +289,36 @@ def limit_size(img: np.ndarray, max_side: int = MAX_OUTPUT_SIDE) -> np.ndarray:
     return cv2.resize(img, (int(w * f), int(h * f)), interpolation=cv2.INTER_AREA)
 
 
+def detect_outline(img: np.ndarray) -> tuple[np.ndarray, bool]:
+    """Dò khung giấy kèm mép cong. Trả về (outline, có_tìm_thấy)."""
+    corners, found = detect_document(img)
+    if not found:
+        return curve.straight_outline(corners), False
+    return curve.refine_outline(img, corners), True
+
+
 def process(
     img: np.ndarray,
     corners: Sequence[Sequence[float]] | None = None,
     mode: str = "color",
     rotation: int = 0,
+    outline: Sequence[Sequence[float]] | None = None,
 ) -> np.ndarray:
-    """Toàn bộ quy trình cho một trang: (dò khung) → nắn → làm sạch → xoay."""
-    if corners is None:
-        corners, _ = detect_document(img)
-    out = trim_border(warp(img, corners))
+    """Toàn bộ quy trình cho một trang: (dò khung) → nắn/làm phẳng → làm sạch → xoay.
+
+    - outline: vòng điểm mép cong (xem scanner.curve) → làm phẳng giấy cong/gấp.
+    - corners: chỉ 4 góc → nắn phối cảnh thường.
+    - không truyền gì: tự dò khung và mép cong.
+    """
+    if outline is not None:
+        out = curve.warp_curved(img, np.asarray(outline, dtype=np.float64))
+    else:
+        if corners is None:
+            ol, _ = detect_outline(img)
+            out = curve.warp_curved(img, ol)
+        else:
+            out = warp(img, corners)
+    out = trim_border(out)
     out = limit_size(out)
     out = enhance(out, mode)
     return rotate(out, rotation)

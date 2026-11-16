@@ -4,8 +4,9 @@ Chuyển ảnh chụp tài liệu từ điện thoại thành một file PDF s�
 
 - Điện thoại quét mã QR để chụp và gửi ảnh qua Wi-Fi sang laptop, không cần cài app.
 - Tự tìm khung tờ giấy, cắt bỏ nền xung quanh và nắn phẳng ảnh chụp xiên.
-- Làm trắng nền, xoá bóng đổ và vùng tối, chữ rõ hơn.
-- Kéo chỉnh 4 góc bằng tay khi máy nhận sai (có kính lúp phóng to).
+- **Làm phẳng giấy cong, quăn mép hoặc có nếp gấp** theo đường mép thật của tờ giấy, không chỉ theo 4 góc.
+- Làm trắng nền, xoá bóng đổ và vùng tối, chữ rõ hơn. Các ô tô xám, con dấu, chữ ký vẫn giữ nguyên.
+- Kéo chỉnh 4 góc và các điểm dọc mép giấy bằng tay khi máy nhận sai (có kính lúp phóng to).
 - Xoay trang, đổi thứ tự bằng kéo thả, chọn chế độ màu từng trang.
 - Gộp tất cả thành **một file PDF** (khổ A4, Letter hoặc theo ảnh).
 
@@ -24,7 +25,10 @@ Chuyển ảnh chụp tài liệu từ điện thoại thành một file PDF s�
 1. **Gửi ảnh**
    - *Từ điện thoại:* mở camera, quét mã QR trên màn hình laptop, rồi bấm **Chụp trang mới** hoặc **Chọn ảnh có sẵn**. Điện thoại phải dùng **chung Wi-Fi** với laptop.
    - *Từ laptop:* kéo thả ảnh vào khung bên trái (hỗ trợ JPG, PNG, HEIC của iPhone, WEBP, TIFF…).
-2. **Kiểm tra từng trang.** Trang nào có dòng vàng "Không tìm thấy khung giấy", hoặc cắt chưa đúng, thì bấm **Chỉnh góc** rồi kéo 4 chấm vào 4 góc tờ giấy.
+2. **Kiểm tra từng trang.** Trang nào có dòng vàng "Không tìm thấy khung giấy", hoặc cắt chưa đúng, thì bấm **Chỉnh khung**:
+   - Kéo 4 chấm lớn vào 4 góc tờ giấy.
+   - Nếu mép giấy cong, kéo các chấm nhỏ dọc theo mép cho khớp với mép thật. Phần bên trong sẽ được làm phẳng theo.
+   - **Làm thẳng mép**: bỏ đường cong, chỉ nắn theo 4 góc. **Tự dò lại**: để máy dò lại từ đầu.
 3. Chọn **chế độ màu**:
    | Chế độ | Dùng khi |
    |---|---|
@@ -41,6 +45,14 @@ Các trang đang làm được lưu trong thư mục `data\`. Tắt app rồi m�
 - Đặt giấy trên **nền tối hơn giấy** (bàn gỗ, bìa sẫm màu). Giấy trắng trên bàn trắng là khó nhận nhất.
 - Chụp **đủ cả 4 góc** tờ giấy, để giấy chiếm phần lớn khung hình.
 - Đủ sáng, tránh bóng tay và bóng điện thoại đè lên giấy.
+
+### Giấy cong, quăn hoặc có nếp gấp
+
+App dò đường mép thật của tờ giấy (mép có thể cong hoặc gãy ở nếp gấp), rồi kéo căng phần bên trong cho phẳng. Cách này làm tốt khi:
+- nhìn thấy rõ cả 4 mép giấy trên nền tối hơn giấy;
+- giấy cong hoặc gấp theo kiểu mà mép giấy cũng cong theo (trang sách cong, giấy cuộn mép, giấy gấp đôi gấp ba rồi mở ra).
+
+Không sửa được: chỗ cong chỉ nằm ở giữa tờ giấy trong khi 4 mép vẫn thẳng, hoặc giấy bị vò nhàu. Khi đó nên vuốt phẳng giấy hoặc chặn mép rồi chụp lại.
 
 ## Quét hàng loạt bằng dòng lệnh
 
@@ -88,6 +100,7 @@ run.bat --data D:\scan     :: lưu ảnh đang làm ở chỗ khác
 app.py               chạy web server (waitress)
 scan_cli.py          quét hàng loạt bằng dòng lệnh
 scanner/core.py      xử lý ảnh: dò khung, nắn phối cảnh, làm sạch, ghép PDF (OpenCV + img2pdf)
+scanner/curve.py     dò mép cong và làm phẳng giấy cong/gấp (Coons patch)
 scanner/store.py     lưu các trang đang làm trong data/
 scanner/server.py    các API và trang web (Flask)
 scanner/templates/   giao diện laptop + điện thoại
